@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>เข้าสู่ระบบ - Market Hub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .auth-container {
+            background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden; width: 850px; display: flex; min-height: 500px;
+        }
+        .auth-left {
+            background: #4e54c8; background: -webkit-linear-gradient(to right, #8f94fb, #4e54c8); 
+            background: linear-gradient(to right, #8f94fb, #4e54c8);
+            width: 50%; color: white; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; padding: 40px; text-align: center;
+        }
+        .auth-right { width: 50%; padding: 50px; display: flex; flex-direction: column; justify-content: center; }
+        .form-control { border-radius: 25px; padding: 12px 20px; background: #f8f9fa; border: none; margin-bottom: 15px; }
+        .btn-primary { border-radius: 25px; padding: 10px 20px; background: #4e54c8; border: none; width: 100%; font-weight: bold; }
+        .btn-primary:hover { background: #3f44a8; }
+        .hidden { display: none; }
+        .cursor-pointer { cursor: pointer; color: #4e54c8; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="auth-container">
+    <div class="auth-left">
+        <i class="fas fa-store-alt fa-5x mb-4"></i>
+        <h2>MARKET HUB</h2>
+        <p>ระบบบริหารจัดการพื้นที่ตลาดนัดครบวงจร<br>จองง่าย จ่ายสะดวก ตรวจสอบได้</p>
+    </div>
+
+    <div class="auth-right">
+        <div id="loginForm">
+            <h3 class="fw-bold text-secondary mb-4">เข้าสู่ระบบ</h3>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} p-2 small">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form action="/login" method="POST">
+                <input type="text" name="username" class="form-control" placeholder="ชื่อผู้ใช้งาน" required>
+                <input type="password" name="password" class="form-control" placeholder="รหัสผ่าน" required>
+                <button type="submit" class="btn btn-primary mt-2">LOGIN</button>
+            </form>
+            <p class="text-center mt-4 text-muted small">
+                ยังไม่มีบัญชี? <span onclick="toggleAuth()" class="cursor-pointer">สมัครสมาชิกที่นี่</span>
+            </p>
+            <div class="text-center mt-2 small text-muted">Test: admin/1234, user/1234</div>
+        </div>
+
+        <div id="registerForm" class="hidden">
+            <h3 class="fw-bold text-secondary mb-4">สมัครสมาชิกใหม่</h3>
+            <form action="/register" method="POST">
+                <input type="text" name="username" class="form-control" placeholder="ตั้งชื่อผู้ใช้งาน" required>
+                <input type="password" name="password" class="form-control" placeholder="ตั้งรหัสผ่าน" required>
+                <button type="submit" class="btn btn-success w-100 mt-2" style="border-radius:25px;">REGISTER</button>
+            </form>
+            <p class="text-center mt-4 text-muted small">
+                มีบัญชีแล้ว? <span onclick="toggleAuth()" class="cursor-pointer">กลับไปเข้าสู่ระบบ</span>
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleAuth() {
+        document.getElementById('loginForm').classList.toggle('hidden');
+        document.getElementById('registerForm').classList.toggle('hidden');
+    }
+</script>
+
+</body>
+</html>

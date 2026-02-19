@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">💰 เติมเครดิตเข้าระบบ</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <strong>เครดิตคงเหลือ:</strong> {{ session.credit }} บาท
+                    </div>
+                    
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">เลือกจำนวนเงินที่ต้องการเติม</label>
+                            <select name="amount" class="form-select" required>
+                                <option value="" selected disabled>-- กรุณาเลือก --</option>
+                                <option value="100">100 บาท</option>
+                                <option value="300">300 บาท</option>
+                                <option value="500">500 บาท</option>
+                                <option value="1000">1,000 บาท</option>
+                                <option value="5000">5,000 บาท (โปรเศรษฐี)</option>
+                            </select>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-success btn-lg">ยืนยันการเติมเงิน</button>
+                            <a href="{{ url_for('index') }}" class="btn btn-secondary">ยกเลิก</a>
+                        </div>
+                    </form>
+                    <hr>
+                    <p class="text-muted small text-center mt-3">
+                        *หมายเหตุ: นี่คือระบบจำลอง (Simulation) ยอดเงินจะเข้าทันทีโดยไม่ต้องโอนจริง
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
