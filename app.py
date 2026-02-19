@@ -3,92 +3,82 @@ import sqlite3
 from datetime import datetime, time, timedelta
 import os
 
-# --- ส่วนที่ 1: ตรวจสอบและสร้าง Database อัตโนมัติ (เผื่อไปรันบน Render แล้วหาย) ---
+# --- สร้าง Database อัตโนมัติ ---
 if not os.path.exists('market.db'):
     from setup_db import create_db
     create_db()
-    print(">>> สร้าง Database บน Server เรียบร้อย!")
-# ------------------------------------------------
+    print(">>> Database Created!")
 
 app = Flask(__name__)
 app.secret_key = 'market_project_key'
 
-# ฟังก์ชันเชื่อมต่อฐานข้อมูล
 def get_db():
     conn = sqlite3.connect('market.db')
     conn.row_factory = sqlite3.Row
     return conn
 
 # --- Helper Functions ---
+def get_now_thai():
+    # แปลงเวลา Server (UTC) เป็นเวลาไทย (UTC+7)
+    return datetime.utcnow() + timedelta(hours=7)
 
 def get_market_info():
-    """คำนวณสถานะตลาดและเวลา"""
-    now = datetime.now()
-    current_time = now.time()
+    now_thai = get_now_thai()
+    current_time = now_thai.time()
     
-    # กำหนดเวลาเปิด-ปิดตลาด (11:00 - 00:00)
+    # เวลาเปิด-ปิด (11:00 - 00:00)
     market_open = time(11, 0)
-    
-    # Logic: ตลาดเปิดถ้าเวลาปัจจุบันมากกว่า 11 โมง
     is_open = current_time >= market_open
     
-    # กำหนดเส้นตายการยกเลิก (10:30 น.)
+    # เส้นตายยกเลิก (10:30)
     cancel_deadline = time(10, 30)
     
     return {
         'status': 'OPEN' if is_open else 'CLOSED',
-        'datetime': now.strftime('%d %B %Y | %H:%M น.'),
+        'datetime': now_thai.strftime('%d/%m/%Y'), # ส่งแค่วันที่ เวลาไปใช้ Realtime JS เอา
         'cancel_deadline_str': '10:30 น.',
-        'can_cancel': current_time < cancel_deadline # จะเป็น True ถ้ายังไม่ถึง 10:30
+        'can_cancel': current_time < cancel_deadline
     }
 
 def check_and_reset_daily():
-    """ฟังก์ชันเคลียร์ล็อคเมื่อขึ้นวันใหม่ (ยึดเงิน ไม่คืนเครดิต)"""
     conn = get_db()
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    now_thai = get_now_thai()
+    today_str = now_thai.strftime('%Y-%m-%d')
     
-    # คำสั่ง SQL นี้จะทำการ "ปลดล็อค" ที่วันที่จอง "ไม่ใช่วันนี้" (คือของเมื่อวาน)
-    # โดยจะปรับสถานะเป็น 'available' แต่ **ไม่มีการคืนเงินเข้าตาราง users** (ตรงตามโจทย์: หมดเวลาเครดิตหายเลย)
+    # Reset ล็อคของวันเก่า (ไม่คืนเงินเครดิต)
     conn.execute("""
         UPDATE stalls 
         SET status='available', shop_name='', phone='', product_category='', 
             booked_by=NULL, booking_date='', payment_ref='', payment_status='pending'
         WHERE status='booked' AND booking_date != ?
     """, (today_str,))
-    
     conn.commit()
     conn.close()
 
-# --- Routes (เส้นทางของเว็บ) ---
+# --- Routes ---
 
 @app.route('/')
 def index():
-    # [โจทย์ 1] บังคับล็อกอิน: ถ้าไม่มี user_id ใน session ให้ดีดไปหน้า login
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    # ตรวจสอบว่าขึ้นวันใหม่หรือยัง (ถ้าใช่ ให้ล้างข้อมูลเก่า)
     check_and_reset_daily()
-    
     info = get_market_info()
     search = request.args.get('q', '')
     active_zone = request.args.get('zone', 'Food Court')
     
     conn = get_db()
-    
-    # ดึงข้อมูล User ล่าสุด (เพื่ออัปเดตเครดิตที่โชว์)
     current_user = conn.execute("SELECT * FROM users WHERE id=?", (session['user_id'],)).fetchone()
-    # อัปเดต session credit ให้ตรงกับ DB
-    session['credit'] = current_user['credit']
-
-    # ระบบค้นหาและกรองโซน
+    # อัปเดตเครดิตใน session ให้ตรงกับ DB เสมอ
+    if current_user:
+        session['credit'] = current_user['credit']
+    
     if search:
         stalls = conn.execute("SELECT * FROM stalls WHERE shop_name LIKE ?", ('%' + search + '%',)).fetchall()
         if stalls: active_zone = stalls[0]['zone']
     else:
         stalls = conn.execute("SELECT * FROM stalls").fetchall()
     
-    # จัดกลุ่มล็อคตามโซน
     zones = {}
     for stall in stalls:
         z = stall['zone']
@@ -102,7 +92,7 @@ def index():
     return render_template('index.html', zones=zones, reviews=reviews, avg_rating=round(avg_rating, 1),
                            search=search, active_zone=active_zone, info=info, user_info=current_user)
 
-# [โจทย์ 4] ระบบเติมเงิน (Top-up Route)
+# --- ระบบเติมเงิน ---
 @app.route('/topup', methods=['GET', 'POST'])
 def topup():
     if 'user_id' not in session: return redirect('/login')
@@ -110,16 +100,15 @@ def topup():
     if request.method == 'POST':
         amount = int(request.form['amount'])
         conn = get_db()
-        # เพิ่มเงินเข้ากระเป๋า
         conn.execute("UPDATE users SET credit = credit + ? WHERE id=?", (amount, session['user_id']))
         conn.commit()
         conn.close()
-        
         flash(f'เติมเงินสำเร็จ {amount} บาท!', 'success')
         return redirect(url_for('index'))
         
     return render_template('topup.html')
 
+# --- ระบบจอง ---
 @app.route('/book', methods=['POST'])
 def book_stall():
     if 'user_id' not in session: return redirect('/login')
@@ -141,7 +130,6 @@ def book_stall():
         return redirect(url_for('index', zone=current_zone))
 
     payment_ref = ''
-    # ตัดเงิน: โอนผ่าน QR (ใส่เลขสลิป) หรือ ตัดเครดิต
     if payment_method == 'transfer':
         payment_ref = request.form['payment_ref']
         if not payment_ref:
@@ -158,7 +146,7 @@ def book_stall():
             conn.close()
             return redirect(url_for('index', zone=current_zone))
 
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    today_str = get_now_thai().strftime('%Y-%m-%d')
     conn.execute("""
         UPDATE stalls 
         SET status='booked', shop_name=?, phone=?, product_category=?, booked_by=?, booking_date=?, payment_ref=?, payment_status='paid'
@@ -170,12 +158,12 @@ def book_stall():
     flash('จองล็อคสำเร็จ!', 'success')
     return redirect(url_for('index', zone=current_zone))
 
+# --- ระบบยกเลิกจอง ---
 @app.route('/cancel_booking/<int:stall_id>')
 def cancel_booking(stall_id):
     if 'user_id' not in session: return redirect('/login')
     
     info = get_market_info()
-    # กฎการยกเลิก: ต้องก่อน 10:30 น. (ยกเว้น Admin ยกเลิกได้ตลอด)
     if not info['can_cancel'] and session['role'] != 'admin':
         flash(f'ไม่สามารถยกเลิกได้! (ต้องยกเลิกก่อนเวลา {info["cancel_deadline_str"]})', 'danger')
         return redirect('/')
@@ -185,7 +173,6 @@ def cancel_booking(stall_id):
     
     if stall and (stall['booked_by'] == session['user_id'] or session['role'] == 'admin'):
         refund = stall['price']
-        # คืนเงินเฉพาะกรณียกเลิกเองตามกฎ (ไม่ใช่หมดเวลา)
         conn.execute("UPDATE users SET credit = credit + ? WHERE id=?", (refund, stall['booked_by']))
         conn.execute("""
             UPDATE stalls 
@@ -198,6 +185,7 @@ def cancel_booking(stall_id):
     conn.close()
     return redirect('/')
 
+# --- Admin Dashboard ---
 @app.route('/admin')
 def admin_dashboard():
     if session.get('role') != 'admin': 
@@ -205,14 +193,44 @@ def admin_dashboard():
         return redirect('/')
         
     conn = get_db()
+    # ข้อมูลสรุป
     total_sales = conn.execute("SELECT SUM(price) FROM stalls WHERE status='booked'").fetchone()[0] or 0
     total_booked = conn.execute("SELECT COUNT(*) FROM stalls WHERE status='booked'").fetchone()[0]
     total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    bookings = conn.execute("SELECT * FROM stalls WHERE status='booked' ORDER BY zone, name").fetchall()
-    conn.close()
-    return render_template('admin.html', total_sales=total_sales, total_booked=total_booked, total_users=total_users, bookings=bookings)
+    
+    # ดึงข้อมูลการจอง + ชื่อคนจอง
+    bookings = conn.execute("""
+        SELECT stalls.*, users.username 
+        FROM stalls 
+        LEFT JOIN users ON stalls.booked_by = users.id 
+        WHERE stalls.status='booked' 
+        ORDER BY zone, name
+    """).fetchall()
 
-# --- Auth & Review Routes ---
+    # ดึงรายชื่อ User ทั้งหมดมาแสดง
+    all_users = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
+    
+    conn.close()
+    return render_template('admin.html', total_sales=total_sales, total_booked=total_booked, 
+                           total_users=total_users, bookings=bookings, all_users=all_users)
+
+# --- Admin Edit Credit ---
+@app.route('/admin/update_credit', methods=['POST'])
+def admin_update_credit():
+    if session.get('role') != 'admin': return redirect('/')
+    
+    user_id = request.form['user_id']
+    new_credit = request.form['credit']
+    
+    conn = get_db()
+    conn.execute("UPDATE users SET credit = ? WHERE id = ?", (new_credit, user_id))
+    conn.commit()
+    conn.close()
+    
+    flash('อัปเดตเครดิตเรียบร้อย', 'success')
+    return redirect('/admin')
+
+# --- Auth: Login & Register ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -228,8 +246,28 @@ def login():
             session['credit'] = user['credit']
             return redirect('/')
         else:
-            flash('Login Failed', 'danger')
+            flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'danger')
     return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        conn = get_db()
+        try:
+            # สมัครใหม่แจกเครดิต 0 บาท (หรือจะแจกฟรีแก้เลขตรงนี้)
+            conn.execute("INSERT INTO users (username, password, role, credit) VALUES (?, ?, 'user', 0)", (username, password))
+            conn.commit()
+            flash('สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ', 'success')
+            return redirect(url_for('login'))
+        except sqlite3.IntegrityError:
+            flash('ชื่อผู้ใช้นี้มีคนใช้แล้ว', 'danger')
+        finally:
+            conn.close()
+            
+    return render_template('register.html')
 
 @app.route('/logout')
 def logout():
